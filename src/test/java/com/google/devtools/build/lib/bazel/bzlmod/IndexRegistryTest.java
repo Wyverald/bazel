@@ -62,7 +62,7 @@ public class IndexRegistryTest extends FoundationTestCase {
   }
 
   @Test
-  public void testGetFetcher() throws Exception {
+  public void testGetRepoSpec() throws Exception {
     server.serve("/bazel_registry.json", "{\n"
         + "  \"mirrors\": [\n"
         + "    \"https://mirror.bazel.build/\",\n"
