@@ -142,6 +142,7 @@ public final class RepositoryDelegatorFunction implements SkyFunction {
               e),
           Transience.TRANSIENT);
     }
+    /*
     FileValue repositoryValue = RepositoryFunction.getRepositoryDirectory(source, env);
     if (repositoryValue == null) {
       // TODO(bazel-team): If this returns null, we unnecessarily recreate the symlink above on the
@@ -172,7 +173,7 @@ public final class RepositoryDelegatorFunction implements SkyFunction {
       throw new RepositoryFunctionException(
           new IOException("No WORKSPACE file found in " + source), Transience.PERSISTENT);
     }
-
+*/
     return RepositoryDirectoryValue.builder().setPath(source);
   }
 
@@ -257,10 +258,12 @@ public final class RepositoryDelegatorFunction implements SkyFunction {
         if (markerHash != null) {
           // Now that we know that it exists and that we should not fetch unconditionally, we can
           // declare a Skyframe dependency on the repository root.
+          /*
           RepositoryFunction.getRepositoryDirectory(repoRoot, env);
           if (env.valuesMissing()) {
             return null;
           }
+           */
           return RepositoryDirectoryValue.builder()
               .setPath(repoRoot)
               .setDigest(markerHash)
@@ -296,10 +299,12 @@ public final class RepositoryDelegatorFunction implements SkyFunction {
 
     // Declare a Skyframe dependency so that this is re-evaluated when something happens to the
     // directory.
+    /*
     RepositoryFunction.getRepositoryDirectory(repoRoot, env);
     if (env.valuesMissing()) {
       return null;
     }
+     */
 
     // Try to build with whatever is on the file system and emit a warning.
     env.getListener()
