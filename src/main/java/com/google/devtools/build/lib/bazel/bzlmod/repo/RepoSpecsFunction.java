@@ -9,6 +9,7 @@ import com.google.devtools.build.lib.bazel.bzlmod.ModuleKey;
 import com.google.devtools.build.lib.bazel.bzlmod.NonRegistryOverride;
 import com.google.devtools.build.lib.bazel.bzlmod.RegistryOverride;
 import com.google.devtools.build.lib.bazel.bzlmod.SelectionValue;
+import com.google.devtools.build.lib.bazel.bzlmod.SingleVersionOverride;
 import com.google.devtools.build.lib.pkgcache.PathPackageLocator;
 import com.google.devtools.build.lib.skyframe.PrecomputedValue;
 import com.google.devtools.build.lib.starlarkbuildapi.repository.StarlarkOverrideApi;
@@ -24,12 +25,13 @@ import com.google.devtools.build.skyframe.SkyKey;
 import com.google.devtools.build.skyframe.SkyValue;
 
 import java.io.IOException;
-
 import java.util.HashMap;
 import java.util.Map;
+
 import javax.annotation.Nullable;
 
 public class RepoSpecsFunction implements SkyFunction {
+
   @Nullable
   @Override
   public SkyValue compute(SkyKey skyKey, Environment env)
@@ -95,12 +97,31 @@ public class RepoSpecsFunction implements SkyFunction {
         } else {
           repoSpec = module.getRegistry().getRepoSpec(moduleKey, repoName, env.getListener());
         }
+        // We may need to apply an extra set of patches here when the module has a single version
+        // override with patches.
+        repoSpec = maybeAppendAdditionalPatches(repoSpec,
+            selectionValue.getOverrides().get(moduleKey.getName()));
         repositories.put(repoName, repoSpec);
       } catch (IOException e) {
         throw new RepoSpecsFunctionException(e, Transience.PERSISTENT);
       }
     }
     return new RepoSpecsValue(repositories.build());
+  }
+
+  private RepoSpec maybeAppendAdditionalPatches(RepoSpec repoSpec, StarlarkOverrideApi override) {
+    if (!(override instanceof SingleVersionOverride)) {
+      return repoSpec;
+    }
+    SingleVersionOverride singleVersion = (SingleVersionOverride) override;
+    if (singleVersion.getPatches().isEmpty()) {
+      return repoSpec;
+    }
+    HashMap<String, Object> newAttrs = new HashMap<>(repoSpec.getAttributes().size());
+    newAttrs.putAll(repoSpec.getAttributes());
+    newAttrs.put("patches", singleVersion.getPatches());
+    newAttrs.put("patch_args", ImmutableList.of("-p" + singleVersion.getPatchStrip()));
+    return new RepoSpec(repoSpec.getRuleClass(), ImmutableMap.copyOf(newAttrs));
   }
 
   @Nullable
