@@ -2225,6 +2225,8 @@ java_library(
         "//src/main/java/com/google/devtools/build/lib/packages",
         "//src/main/java/com/google/devtools/build/skyframe",
         "//src/main/java/com/google/devtools/build/skyframe:skyframe-objects",
+        "//src/main/java/com/google/devtools/build/lib/bazel/bzlmod:common",
+        "//src/main/java/com/google/devtools/build/lib/bazel/bzlmod:resolution",
         "//third_party:guava",
         "//third_party:jsr305",
     ],
