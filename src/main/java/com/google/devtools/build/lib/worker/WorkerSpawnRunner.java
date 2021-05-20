@@ -28,6 +28,7 @@ import com.google.devtools.build.lib.actions.ActionInput;
 import com.google.devtools.build.lib.actions.ActionInputHelper;
 import com.google.devtools.build.lib.actions.ExecException;
 import com.google.devtools.build.lib.actions.ExecutionRequirements.WorkerProtocolFormat;
+import com.google.devtools.build.lib.actions.ForbiddenActionInputException;
 import com.google.devtools.build.lib.actions.MetadataProvider;
 import com.google.devtools.build.lib.actions.ResourceManager;
 import com.google.devtools.build.lib.actions.ResourceManager.ResourceHandle;
@@ -139,7 +140,7 @@ final class WorkerSpawnRunner implements SpawnRunner {
 
   @Override
   public SpawnResult exec(Spawn spawn, SpawnExecutionContext context)
-      throws ExecException, IOException, InterruptedException {
+      throws ExecException, IOException, InterruptedException, ForbiddenActionInputException {
     context.report(
         ProgressStatus.SCHEDULING,
         WorkerKey.makeWorkerTypeName(
@@ -400,6 +401,9 @@ final class WorkerSpawnRunner implements SpawnRunner {
         restoreInterrupt(e);
         String message = "IOException while prefetching for worker:";
         throw createUserExecException(e, message, Code.PREFETCH_FAILURE);
+      } catch (ForbiddenActionInputException e) {
+        throw createUserExecException(
+            e, "Forbidden input found while prefetching for worker:", Code.FORBIDDEN_INPUT);
       }
       Duration setupInputsTime = setupInputsStopwatch.elapsed();
 
@@ -457,12 +461,27 @@ final class WorkerSpawnRunner implements SpawnRunner {
         try {
           response = worker.getResponse(request.getRequestId());
         } catch (InterruptedException e) {
-          finishWorkAsync(
-              key,
-              worker,
-              request,
-              workerOptions.workerCancellation && Spawns.supportsWorkerCancellation(spawn));
-          worker = null;
+          if (worker.isSandboxed()) {
+            // Sandboxed workers can safely finish their work async.
+            finishWorkAsync(
+                key,
+                worker,
+                request,
+                workerOptions.workerCancellation && Spawns.supportsWorkerCancellation(spawn));
+            worker = null;
+          } else if (!key.isSpeculative()) {
+            // Non-sandboxed workers interrupted outside of dynamic execution can only mean that
+            // the user interrupted the build, and we don't want to delay finishing. Instead we
+            // kill the worker.
+            // Technically, workers are always sandboxed under dynamic execution, at least for now.
+            try {
+              workers.invalidateObject(key, worker);
+            } catch (IOException e1) {
+              // Nothing useful we can do here, in fact it may not be possible to get here.
+            } finally {
+              worker = null;
+            }
+          }
           throw e;
         } catch (IOException e) {
           restoreInterrupt(e);
@@ -580,6 +599,12 @@ final class WorkerSpawnRunner implements SpawnRunner {
 
   private static UserExecException createUserExecException(
       IOException e, String message, Code detailedCode) {
+    return createUserExecException(
+        ErrorMessage.builder().message(message).exception(e).build().toString(), detailedCode);
+  }
+
+  private static UserExecException createUserExecException(
+      ForbiddenActionInputException e, String message, Code detailedCode) {
     return createUserExecException(
         ErrorMessage.builder().message(message).exception(e).build().toString(), detailedCode);
   }

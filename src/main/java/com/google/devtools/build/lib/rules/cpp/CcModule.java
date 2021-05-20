@@ -48,6 +48,7 @@ import com.google.devtools.build.lib.packages.semantics.BuildLanguageOptions;
 import com.google.devtools.build.lib.rules.cpp.CcCompilationHelper.CompilationInfo;
 import com.google.devtools.build.lib.rules.cpp.CcCompilationHelper.SourceCategory;
 import com.google.devtools.build.lib.rules.cpp.CcLinkingContext.LinkOptions;
+import com.google.devtools.build.lib.rules.cpp.CcLinkingContext.Linkstamp;
 import com.google.devtools.build.lib.rules.cpp.CcToolchainFeatures.ActionConfig;
 import com.google.devtools.build.lib.rules.cpp.CcToolchainFeatures.ArtifactNamePattern;
 import com.google.devtools.build.lib.rules.cpp.CcToolchainFeatures.EnvEntry;
@@ -502,14 +503,15 @@ public abstract class CcModule
     boolean mustKeepDebug =
         convertFromNoneable(mustKeepDebugForStarlark, /* defaultValue= */ false);
 
-    if (!starlarkActionFactory
-            .getActionConstructionContext()
-            .getConfiguration()
-            .getFragment(CppConfiguration.class)
-            .experimentalStarlarkCcImport()
-        && (picObjectFiles != Starlark.UNBOUND || objectFiles != Starlark.UNBOUND)) {
-      throw Starlark.errorf(
-          "Cannot use objects/pic_objects without --experimental_starlark_cc_import");
+    if (checkObjectsBound(picObjectFiles, objectFiles) && !isBuiltIn(thread)) {
+      if (!starlarkActionFactory
+          .getActionConstructionContext()
+          .getConfiguration()
+          .getFragment(CppConfiguration.class)
+          .experimentalStarlarkCcImport()) {
+        throw Starlark.errorf(
+            "Cannot use objects/pic_objects without --experimental_starlark_cc_import");
+      }
     }
     ImmutableList<Artifact> picObjects = asArtifactImmutableList(picObjectFiles);
     ImmutableList<Artifact> nopicObjects = asArtifactImmutableList(objectFiles);
@@ -768,6 +770,17 @@ public abstract class CcModule
     return ccCompilationContext.build();
   }
 
+  @Override
+  public CcCompilationContext mergeCompilationContexts(Sequence<?> compilationContexts)
+      throws EvalException {
+    return CcCompilationContext.builder(
+            /* actionConstructionContext= */ null, /* configuration= */ null, /* label= */ null)
+        .addDependentCcCompilationContexts(
+            Sequence.cast(compilationContexts, CcCompilationContext.class, "compilation_contexts"),
+            ImmutableList.of())
+        .build();
+  }
+
   private static NestedSet<Artifact> toNestedSetOfArtifacts(Object obj, String fieldName)
       throws EvalException {
     if (obj == Starlark.UNBOUND) {
@@ -847,18 +860,39 @@ public abstract class CcModule
       Object librariesToLinkObject,
       Object userLinkFlagsObject,
       Object nonCodeInputs, // <FileT> expected
+      Object linkstampsObject,
       StarlarkThread thread)
       throws EvalException, InterruptedException {
-    LinkOptions options =
-        LinkOptions.of(
-            Depset.noneableCast(userLinkFlagsObject, String.class, "user_link_flags").toList(),
-            BazelStarlarkContext.from(thread).getSymbolGenerator());
+    if (checkObjectsBound(linkstampsObject)) {
+      checkPrivateStarlarkificationAllowlist(thread);
+    }
+
+    ImmutableList.Builder<LinkOptions> optionsBuilder = ImmutableList.builder();
+    if (userLinkFlagsObject instanceof Depset || userLinkFlagsObject instanceof NoneType) {
+      LinkOptions options =
+          LinkOptions.of(
+              Depset.noneableCast(userLinkFlagsObject, String.class, "user_link_flags").toList(),
+              BazelStarlarkContext.from(thread).getSymbolGenerator());
+      optionsBuilder.add(options);
+    } else if (userLinkFlagsObject instanceof Sequence) {
+      checkPrivateStarlarkificationAllowlist(thread);
+
+      ImmutableList<Object> options =
+          Sequence.cast(userLinkFlagsObject, Object.class, "user_link_flags[]").getImmutableList();
+      for (Object optionObject : options) {
+        ImmutableList<String> option =
+            Sequence.cast(optionObject, String.class, "user_link_flags[][]").getImmutableList();
+        optionsBuilder.add(
+            LinkOptions.of(option, BazelStarlarkContext.from(thread).getSymbolGenerator()));
+      }
+    }
 
     return CcLinkingContext.LinkerInput.builder()
         .setOwner(owner)
         .addLibraries(
             Depset.noneableCast(librariesToLinkObject, LibraryToLink.class, "libraries").toList())
-        .addUserLinkFlags(ImmutableList.of(options))
+        .addUserLinkFlags(optionsBuilder.build())
+        .addLinkstamps(convertToNestedSet(linkstampsObject, Linkstamp.class, "linkstamps").toList())
         .addNonCodeInputs(
             Depset.noneableCast(nonCodeInputs, Artifact.class, "additional_inputs").toList())
         .build();
@@ -967,7 +1001,7 @@ public abstract class CcModule
   /** Converts None, or a Sequence, or a Depset to a NestedSet. */
   private static <T> NestedSet<T> convertToNestedSet(Object o, Class<T> type, String fieldName)
       throws EvalException {
-    if (o == Starlark.NONE) {
+    if (o == Starlark.UNBOUND || o == Starlark.NONE) {
       return NestedSetBuilder.emptySet(Order.COMPILE_ORDER);
     }
     return o instanceof Depset
@@ -1816,10 +1850,17 @@ public abstract class CcModule
     Label label =
         ((BazelModuleContext) Module.ofInnermostEnclosingStarlarkFunction(thread).getClientData())
             .label();
-    if (!label.getPackageIdentifier().getRepository().toString().equals("@_builtins")
+    if (!isBuiltIn(thread)
         && !PRIVATE_STARLARKIFICATION_ALLOWLIST.contains(label.getPackageName())) {
       throw Starlark.errorf("Rule in '%s' cannot use private API", label.getPackageName());
     }
+  }
+
+  private static boolean isBuiltIn(StarlarkThread thread) {
+    Label label =
+        ((BazelModuleContext) Module.ofInnermostEnclosingStarlarkFunction(thread).getClientData())
+            .label();
+    return label.getPackageIdentifier().getRepository().toString().equals("@_builtins");
   }
 
   protected Language parseLanguage(String string) throws EvalException {

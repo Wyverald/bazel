@@ -14,6 +14,7 @@
 
 package com.google.devtools.build.lib.rules.objc;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
 import static com.google.devtools.build.lib.actions.util.ActionsTestUtil.baseArtifactNames;
@@ -62,7 +63,6 @@ import com.google.devtools.build.lib.rules.cpp.CppLinkAction;
 import com.google.devtools.build.lib.rules.cpp.CppModuleMap;
 import com.google.devtools.build.lib.rules.cpp.CppModuleMapAction;
 import com.google.devtools.build.lib.rules.cpp.CppRuleClasses;
-import com.google.devtools.build.lib.testutil.TestConstants;
 import com.google.devtools.common.options.OptionsParsingException;
 import java.util.List;
 import java.util.Set;
@@ -108,8 +108,7 @@ public class ObjcLibraryTest extends ObjcRuleTestCase {
     ConfiguredTarget cc = getConfiguredTarget("//bin:cc");
     Artifact objcObject = ActionsTestUtil.getFirstArtifactEndingWith(
         actionsTestUtil().artifactClosureOf(getFilesToBuild(cc)), "objc.o");
-    assertThat(objcObject.getExecPathString()).startsWith(
-        TestConstants.PRODUCT_NAME + "-out/ios_x86_64-fastbuild/");
+    assertThat(objcObject.getExecPathString()).contains("ios_x86_64");
   }
 
   @Test
@@ -812,8 +811,9 @@ public class ObjcLibraryTest extends ObjcRuleTestCase {
         .setList("copts", "-fmodules")
         .write();
     CommandAction compileActionA = compileAction("//objc:lib", "a.o");
-    assertThat(compileActionA.getArguments())
-        .containsAtLeast("-fmodules", "-fmodules-cache-path=" + getModulesCachePath());
+    assertThat(removeConfigFragment(compileActionA.getArguments()))
+        .containsAtLeast(
+            "-fmodules", "-fmodules-cache-path=" + removeConfigFragment(getModulesCachePath()));
   }
 
   @Test
@@ -826,8 +826,9 @@ public class ObjcLibraryTest extends ObjcRuleTestCase {
         ")");
 
     CommandAction compileActionA = compileAction("//objc:lib", "a.o");
-    assertThat(compileActionA.getArguments())
-        .containsAtLeast("-fmodules", "-fmodules-cache-path=" + getModulesCachePath());
+    assertThat(removeConfigFragment(compileActionA.getArguments()))
+        .containsAtLeast(
+            "-fmodules", "-fmodules-cache-path=" + removeConfigFragment(getModulesCachePath()));
   }
 
   @Test
@@ -903,8 +904,7 @@ public class ObjcLibraryTest extends ObjcRuleTestCase {
     assertThat(objcProvider.get(CC_LIBRARY).toList()).isEmpty();
   }
 
-  @Test
-  public void testIncludesDirsGetPassedToCompileAction() throws Exception {
+  private void checkIncludesGetPassedToCompileAction() throws Exception {
     createLibraryTargetWriter("//lib:lib")
         .setAndCreateFiles("srcs", "a.m", "b.m", "private.h")
         .setList("includes", "../third_party/foo", "opensource/bar")
@@ -914,8 +914,28 @@ public class ObjcLibraryTest extends ObjcRuleTestCase {
     for (String path :
         rootedIncludePaths(
             getAppleCrosstoolConfiguration(), "third_party/foo", "lib/opensource/bar")) {
-      assertThat(Joiner.on("").join(compileAction.getArguments())).contains("-I" + path);
+      assertThat(Joiner.on("").join(removeConfigFragment(compileAction.getArguments())))
+          .contains("-I" + path);
     }
+  }
+
+  @Test
+  public void testIncludesDirsGetPassedToCompileAction_separateGenfilesBinDirs() throws Exception {
+    checkIncludesGetPassedToCompileAction();
+  }
+
+  @Test
+  public void testIncludesDirsGetPassedToCompileAction_mergedGenfilesBinDirs() throws Exception {
+    useConfiguration("--incompatible_merge_genfiles_directory");
+    checkIncludesGetPassedToCompileAction();
+
+    // Verify that the paths aren't added twice when binDir and genfilesDir are the same.
+    CommandAction compileAction = compileAction("//lib:lib", "a.o");
+    ImmutableList<String> includeFlags =
+        removeConfigFragment(compileAction.getArguments()).stream()
+            .filter((flag) -> flag.startsWith("-I"))
+            .collect(toImmutableList());
+    assertThat(includeFlags).containsNoDuplicates();
   }
 
   @Test
@@ -1358,7 +1378,7 @@ public class ObjcLibraryTest extends ObjcRuleTestCase {
 
     CommandAction compileActionA = compileAction("//objc:lib", "a.o");
 
-    assertThat(compileActionA.getArguments())
+    assertThat(removeConfigFragment(compileActionA.getArguments()))
         .containsAtLeastElementsIn(
             new ImmutableList.Builder<String>()
                 .addAll(AppleToolchain.DEFAULT_WARNINGS.values())
@@ -1374,9 +1394,10 @@ public class ObjcLibraryTest extends ObjcRuleTestCase {
                 .add("-iquote", ".")
                 .add(
                     "-iquote",
-                    getAppleCrosstoolConfiguration()
-                        .getGenfilesFragment(RepositoryName.MAIN)
-                        .getSafePathString())
+                    removeConfigFragment(
+                        getAppleCrosstoolConfiguration()
+                            .getGenfilesFragment(RepositoryName.MAIN)
+                            .getSafePathString()))
                 .add("-include", "objc/some.pch")
                 .add("-fobjc-arc")
                 .add("-c", "objc/a.m")
@@ -1390,7 +1411,8 @@ public class ObjcLibraryTest extends ObjcRuleTestCase {
   // Converts output artifacts into expected command-line arguments.
   protected List<String> outputArgs(Set<Artifact> outputs) {
     ImmutableList.Builder<String> result = new ImmutableList.Builder<>();
-    for (String output : Artifact.toExecPaths(outputs)) {
+    for (String outputConfig : Artifact.toExecPaths(outputs)) {
+      String output = removeConfigFragment(outputConfig);
       if (output.endsWith(".o")) {
         result.add("-o", output);
       } else if (output.endsWith(".d")) {
@@ -1431,18 +1453,19 @@ public class ObjcLibraryTest extends ObjcRuleTestCase {
         .write();
     ObjcProvider objcProvider = providerForTarget("//objc2:lib");
 
-    Iterable<Artifact> linkerInputArtifacts =
+    Iterable<String> linkerInputArtifacts =
         Iterables.transform(
-            objcProvider.get(CC_LIBRARY).toList(), (library) -> library.getStaticLibrary());
+            objcProvider.get(CC_LIBRARY).toList(),
+            (library) -> removeConfigFragment(library.getStaticLibrary().getExecPathString()));
 
     assertThat(linkerInputArtifacts)
         .containsAtLeast(
-            getBinArtifact(
-                "liblib.a", getConfiguredTarget("//cc:lib", getAppleCrosstoolConfiguration())),
-            getBinArtifact(
-                "libcc_lib_impl.a",
-                getConfiguredTarget(
-                    "//third_party/cc_lib:cc_lib_impl", getAppleCrosstoolConfiguration())));
+            removeConfigFragment(
+                getBinArtifact("liblib.a", getConfiguredTarget("//cc:lib")).getExecPathString()),
+            removeConfigFragment(
+                getBinArtifact(
+                        "libcc_lib_impl.a", getConfiguredTarget("//third_party/cc_lib:cc_lib_impl"))
+                    .getExecPathString()));
   }
 
   @Test
@@ -1523,9 +1546,8 @@ public class ObjcLibraryTest extends ObjcRuleTestCase {
         .write();
     CommandAction compileAction = compileAction("//lib2:lib2", "a.o");
     // We remove spaces, since the crosstool rules do not use spaces in include paths
-    String compileActionArgs = Joiner.on("")
-        .join(compileAction.getArguments())
-        .replace(" ", "");
+    String compileActionArgs =
+        Joiner.on("").join(removeConfigFragment(compileAction.getArguments())).replace(" ", "");
     List<String> expectedIncludePaths = rootedIncludePaths(
         getAppleCrosstoolConfiguration(),
         "lib2/more_includes",
@@ -1553,7 +1575,7 @@ public class ObjcLibraryTest extends ObjcRuleTestCase {
 
     CommandAction compileAction = compileAction("//package:objc_lib", "b.o");
     assertContainsSublist(
-        compileAction.getArguments(),
+        removeConfigFragment(removeConfigFragment(compileAction.getArguments())),
         ImmutableList.copyOf(
             Interspersing.beforeEach(
                 "-isystem",
@@ -1605,9 +1627,11 @@ public class ObjcLibraryTest extends ObjcRuleTestCase {
     CommandAction compileAction = compileAction("//lib:lib", "a.o");
     BuildConfiguration config = getAppleCrosstoolConfiguration();
     assertContainsSublist(
-        compileAction.getArguments(),
+        removeConfigFragment(compileAction.getArguments()),
         ImmutableList.of(
-            "-iquote", config.getGenfilesFragment(RepositoryName.MAIN).getSafePathString()));
+            "-iquote",
+            removeConfigFragment(
+                config.getGenfilesFragment(RepositoryName.MAIN).getSafePathString())));
   }
 
   @Test
@@ -1771,8 +1795,8 @@ public class ObjcLibraryTest extends ObjcRuleTestCase {
   @Test
   public void testExportsJ2ObjcProviders() throws Exception {
     ConfiguredTarget lib = createLibraryTargetWriter("//a:lib").write();
-    assertThat(lib.getProvider(J2ObjcEntryClassProvider.class)).isNotNull();
-    assertThat(lib.getProvider(J2ObjcMappingFileProvider.class)).isNotNull();
+    assertThat(lib.get(J2ObjcEntryClassProvider.PROVIDER)).isNotNull();
+    assertThat(lib.get(J2ObjcMappingFileProvider.PROVIDER)).isNotNull();
   }
 
   @Test
@@ -1989,8 +2013,7 @@ public class ObjcLibraryTest extends ObjcRuleTestCase {
     checkError(
         "x",
         "foo/bar",
-        "in name attribute of objc_library rule //x:foo/bar: "
-            + "this attribute has unsupported character '/'",
+        "this attribute has unsupported character '/'",
         "objc_library(name = 'foo/bar', srcs = ['foo.m'])");
   }
 

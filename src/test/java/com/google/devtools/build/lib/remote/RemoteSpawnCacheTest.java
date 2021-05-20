@@ -38,6 +38,7 @@ import com.google.devtools.build.lib.actions.ActionInput;
 import com.google.devtools.build.lib.actions.ActionInputHelper;
 import com.google.devtools.build.lib.actions.Artifact.ArtifactExpander;
 import com.google.devtools.build.lib.actions.ExecutionRequirements;
+import com.google.devtools.build.lib.actions.ForbiddenActionInputException;
 import com.google.devtools.build.lib.actions.MetadataProvider;
 import com.google.devtools.build.lib.actions.ResourceSet;
 import com.google.devtools.build.lib.actions.SimpleSpawn;
@@ -104,6 +105,7 @@ public class RemoteSpawnCacheTest {
   private FileSystem fs;
   private DigestUtil digestUtil;
   private Path execRoot;
+  private RemotePathResolver remotePathResolver;
   private SimpleSpawn simpleSpawn;
   private FakeActionInputFileCache fakeFileCache;
   @Mock private RemoteCache remoteCache;
@@ -157,7 +159,7 @@ public class RemoteSpawnCacheTest {
 
         @Override
         public SortedMap<PathFragment, ActionInput> getInputMapping(PathFragment baseDirectory)
-            throws IOException {
+            throws IOException, ForbiddenActionInputException {
           return new SpawnInputExpander(execRoot, /*strict*/ false)
               .getInputMapping(simpleSpawn, SIMPLE_ARTIFACT_EXPANDER, baseDirectory, fakeFileCache);
         }
@@ -200,17 +202,19 @@ public class RemoteSpawnCacheTest {
   }
 
   private RemoteSpawnCache remoteSpawnCacheWithOptions(RemoteOptions options) {
+    RemoteExecutionService remoteExecutionService =
+        new RemoteExecutionService(
+            execRoot,
+            remotePathResolver,
+            BUILD_REQUEST_ID,
+            COMMAND_ID,
+            digestUtil,
+            options,
+            remoteCache,
+            null,
+            ImmutableSet.of());
     return new RemoteSpawnCache(
-        execRoot,
-        options,
-        /* verboseFailures=*/ true,
-        remoteCache,
-        BUILD_REQUEST_ID,
-        COMMAND_ID,
-        reporter,
-        digestUtil,
-        /* filesToDownload= */ ImmutableSet.of(),
-        RemotePathResolver.createDefault(execRoot));
+        execRoot, options, /* verboseFailures=*/ true, reporter, remoteExecutionService);
   }
 
   @Before
@@ -219,6 +223,7 @@ public class RemoteSpawnCacheTest {
     fs = new InMemoryFileSystem(new JavaClock(), DigestHashFunction.SHA256);
     digestUtil = new DigestUtil(DigestHashFunction.SHA256);
     execRoot = fs.getPath("/exec/root");
+    remotePathResolver = RemotePathResolver.createDefault(execRoot);
     FileSystemUtils.createDirectoryAndParents(execRoot);
     fakeFileCache = new FakeActionInputFileCache(execRoot);
     simpleSpawn = simpleSpawnWithExecutionInfo(ImmutableMap.of());

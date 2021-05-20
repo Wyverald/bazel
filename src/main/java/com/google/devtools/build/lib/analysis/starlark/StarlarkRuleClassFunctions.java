@@ -34,7 +34,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.devtools.build.lib.actions.Artifact;
 import com.google.devtools.build.lib.analysis.BaseRuleClasses;
-import com.google.devtools.build.lib.analysis.RuleDefinitionContext;
+import com.google.devtools.build.lib.analysis.RuleDefinitionEnvironment;
 import com.google.devtools.build.lib.analysis.TemplateVariableInfo;
 import com.google.devtools.build.lib.analysis.config.ConfigAwareRuleClassBuilder;
 import com.google.devtools.build.lib.analysis.config.HostTransition;
@@ -164,7 +164,7 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi<Arti
           .build();
 
   /** Parent rule class for test Starlark rules. */
-  public static final RuleClass getTestBaseRule(RuleDefinitionContext env) {
+  public static final RuleClass getTestBaseRule(RuleDefinitionEnvironment env) {
     String toolsRepository = env.getToolsRepository();
     return new RuleClass.Builder("$test_base_rule", RuleClassType.ABSTRACT, true, baseRule)
         .requiresConfigurationFragments(TestConfiguration.class)
@@ -518,6 +518,7 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi<Arti
       StarlarkFunction implementation,
       Sequence<?> attributeAspects,
       Object attrs,
+      Sequence<?> requiredProvidersArg,
       Sequence<?> requiredAspectProvidersArg,
       Sequence<?> providesArg,
       Sequence<?> fragments,
@@ -607,6 +608,7 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi<Arti
         implementation,
         attrAspects.build(),
         attributes.build(),
+        StarlarkAttrModule.buildProviderPredicate(requiredProvidersArg, "required_providers"),
         StarlarkAttrModule.buildProviderPredicate(
             requiredAspectProvidersArg, "required_aspect_providers"),
         StarlarkAttrModule.getStarlarkProviderIdentifiers(providesArg),
@@ -792,7 +794,8 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi<Arti
       }
       // TODO(b/121385274): remove when we stop allowlisting starlark transitions
       if (hasStarlarkDefinedTransition) {
-        if (!hasFunctionTransitionAllowlist) {
+        if (!starlarkLabel.getRepository().getName().equals("@_builtins")
+            && !hasFunctionTransitionAllowlist) {
           errorf(
               handler,
               "Use of Starlark transition without allowlist attribute"
@@ -944,7 +947,7 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi<Arti
         throw Starlark.errorf(
             "An exec group cannot set copy_from_rule=True and declare toolchains or constraints.");
       }
-      return ExecGroup.COPY_FROM_RULE_EXEC_GROUP;
+      return ExecGroup.copyFromDefault();
     }
 
     ImmutableSet<Label> toolchainTypes = ImmutableSet.copyOf(parseToolchains(toolchains, thread));

@@ -157,7 +157,6 @@ public abstract class AbstractPackageLoader implements PackageLoader {
     protected final BlazeDirectories directories;
     protected final PathPackageLocator pkgLocator;
     final AtomicReference<PathPackageLocator> pkgLocatorRef;
-    private final ExternalPackageHelper externalPackageHelper;
     private ExternalFileAction externalFileAction;
     protected ExternalFilesHelper externalFilesHelper;
     protected ConfiguredRuleClassProvider ruleClassProvider = getDefaultRuleClassProvider();
@@ -173,7 +172,6 @@ public abstract class AbstractPackageLoader implements PackageLoader {
         Path installBase,
         Path outputBase,
         ImmutableList<BuildFileName> buildFilesByPriority,
-        ExternalPackageHelper externalPackageHelper,
         ExternalFileAction externalFileAction) {
       this.workspaceDir = workspaceDir.asPath();
       Path devNull = workspaceDir.getRelative("/dev/null");
@@ -189,7 +187,6 @@ public abstract class AbstractPackageLoader implements PackageLoader {
               directories.getOutputBase(), ImmutableList.of(workspaceDir), buildFilesByPriority);
       this.pkgLocatorRef = new AtomicReference<>(pkgLocator);
       this.externalFileAction = externalFileAction;
-      this.externalPackageHelper = externalPackageHelper;
     }
 
     public Builder setRuleClassProvider(ConfiguredRuleClassProvider ruleClassProvider) {
@@ -259,8 +256,7 @@ public abstract class AbstractPackageLoader implements PackageLoader {
               pkgLocatorRef,
               externalFileAction,
               directories,
-              ManagedDirectoriesKnowledge.NO_MANAGED_DIRECTORIES,
-              externalPackageHelper);
+              ManagedDirectoriesKnowledge.NO_MANAGED_DIRECTORIES);
       return buildImpl();
     }
 

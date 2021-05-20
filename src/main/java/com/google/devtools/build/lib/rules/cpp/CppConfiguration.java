@@ -374,6 +374,10 @@ public final class CppConfiguration extends Fragment
     return cppOptions.useArgsParamsFile;
   }
 
+  public boolean useCcTestFeature() {
+    return cppOptions.enableCcTestFeature;
+  }
+
   /** Returns whether or not to strip the binaries. */
   public boolean shouldStripBinaries() {
     return stripBinaries;
@@ -798,6 +802,10 @@ public final class CppConfiguration extends Fragment
 
   public boolean objcShouldGenerateDotdFiles() {
     return cppOptions.objcGenerateDotdFiles;
+  }
+
+  public boolean experimentalCcImplementationDeps() {
+    return cppOptions.experimentalCcImplementationDeps;
   }
 
   @Override

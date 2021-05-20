@@ -84,7 +84,6 @@ import com.google.devtools.build.lib.events.Event;
 import com.google.devtools.build.lib.events.EventHandler;
 import com.google.devtools.build.lib.events.ExtendedEventHandler;
 import com.google.devtools.build.lib.events.Reporter;
-import com.google.devtools.build.lib.exec.ExecutionOptions;
 import com.google.devtools.build.lib.profiler.Profiler;
 import com.google.devtools.build.lib.profiler.ProfilerTask;
 import com.google.devtools.build.lib.profiler.SilentCloseable;
@@ -109,6 +108,7 @@ import com.google.devtools.build.lib.vfs.Path;
 import com.google.devtools.build.lib.vfs.PathFragment;
 import com.google.devtools.build.lib.vfs.Root;
 import com.google.devtools.build.lib.vfs.Symlinks;
+import com.google.devtools.build.lib.vfs.UnixGlob.FilesystemCalls;
 import com.google.devtools.build.skyframe.SkyFunction.Environment;
 import com.google.devtools.build.skyframe.SkyKey;
 import com.google.devtools.common.options.OptionsProvider;
@@ -159,6 +159,7 @@ public final class SkyframeActionExecutor {
   private final ActionKeyContext actionKeyContext;
   private final MetadataConsumerForMetrics outputArtifactsSeen;
   private final MetadataConsumerForMetrics outputArtifactsFromActionCache;
+  private final AtomicReference<FilesystemCalls> syscalls;
   private Reporter reporter;
   private Map<String, String> clientEnv = ImmutableMap.of();
   private Executor executorEngine;
@@ -237,13 +238,15 @@ public final class SkyframeActionExecutor {
       MetadataConsumerForMetrics outputArtifactsFromActionCache,
       AtomicReference<ActionExecutionStatusReporter> statusReporterRef,
       Supplier<ImmutableList<Root>> sourceRootSupplier,
-      PathFragment relativeOutputPath) {
+      PathFragment relativeOutputPath,
+      AtomicReference<FilesystemCalls> syscalls) {
     this.actionKeyContext = actionKeyContext;
     this.outputArtifactsSeen = outputArtifactsSeen;
     this.outputArtifactsFromActionCache = outputArtifactsFromActionCache;
     this.statusReporterRef = statusReporterRef;
     this.sourceRootSupplier = sourceRootSupplier;
     this.relativeOutputPath = relativeOutputPath;
+    this.syscalls = syscalls;
   }
 
   SharedActionCallback getSharedActionCallback(
@@ -327,7 +330,7 @@ public final class SkyframeActionExecutor {
 
   boolean useArchivedTreeArtifacts(ActionAnalysisMetadata action) {
     return options
-        .getOptions(ExecutionOptions.class)
+        .getOptions(CoreOptions.class)
         .archivedArtifactsMnemonicsFilter
         .test(action.getMnemonic());
   }
@@ -353,21 +356,11 @@ public final class SkyframeActionExecutor {
   }
 
   private void updateActionFileSystemContext(
-      Action action,
       FileSystem actionFileSystem,
       Environment env,
       MetadataInjector metadataInjector,
-      ImmutableMap<Artifact, ImmutableList<FilesetOutputSymlink>> filesets)
-      throws ActionExecutionException {
-    try {
-      outputService.updateActionFileSystemContext(
-          actionFileSystem, env, metadataInjector, filesets);
-    } catch (IOException e) {
-      String message = "Failed to update filesystem context: " + e.getMessage();
-      DetailedExitCode code =
-          createDetailedExitCode(message, Code.FILESYSTEM_CONTEXT_UPDATE_FAILURE);
-      throw new ActionExecutionException(message, e, action, /*catastrophe=*/ false, code);
-    }
+      ImmutableMap<Artifact, ImmutableList<FilesetOutputSymlink>> filesets) {
+    outputService.updateActionFileSystemContext(actionFileSystem, env, metadataInjector, filesets);
   }
 
   void executionOver() {
@@ -463,8 +456,7 @@ public final class SkyframeActionExecutor {
       boolean hasDiscoveredInputs)
       throws ActionExecutionException, InterruptedException {
     if (actionFileSystem != null) {
-      updateActionFileSystemContext(
-          action, actionFileSystem, env, metadataHandler, expandedFilesets);
+      updateActionFileSystemContext(actionFileSystem, env, metadataHandler, expandedFilesets);
     }
 
     ActionExecutionContext actionExecutionContext =
@@ -475,7 +467,8 @@ public final class SkyframeActionExecutor {
             artifactExpander,
             topLevelFilesets,
             actionFileSystem,
-            skyframeDepsResult);
+            skyframeDepsResult,
+            syscalls);
 
     if (actionCacheChecker.isActionExecutionProhibited(action)) {
       // We can't execute an action (e.g. because --check_???_up_to_date option was used). Fail the
@@ -541,7 +534,8 @@ public final class SkyframeActionExecutor {
       ArtifactExpander artifactExpander,
       ImmutableMap<Artifact, ImmutableList<FilesetOutputSymlink>> topLevelFilesets,
       @Nullable FileSystem actionFileSystem,
-      @Nullable Object skyframeDepsResult)
+      @Nullable Object skyframeDepsResult,
+      AtomicReference<FilesystemCalls> syscalls)
       throws InterruptedException {
     boolean emitProgressEvents = shouldEmitProgressEvents(action);
     ArtifactPathResolver artifactPathResolver =
@@ -576,7 +570,8 @@ public final class SkyframeActionExecutor {
         artifactExpander,
         actionFileSystem,
         skyframeDepsResult,
-        nestedSetExpander);
+        nestedSetExpander,
+        syscalls.get());
   }
 
   private static void closeContext(
@@ -777,10 +772,10 @@ public final class SkyframeActionExecutor {
             clientEnv,
             env,
             actionFileSystem,
-            nestedSetExpander);
+            nestedSetExpander,
+            syscalls.get());
     if (actionFileSystem != null) {
       updateActionFileSystemContext(
-          action,
           actionFileSystem,
           env,
           THROWING_METADATA_INJECTOR_FOR_ACTIONFS,
