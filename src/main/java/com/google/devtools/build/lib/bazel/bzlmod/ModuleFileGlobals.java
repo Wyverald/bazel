@@ -93,9 +93,8 @@ public class ModuleFileGlobals implements ModuleFileGlobalsApi<ModuleFileFunctio
     return LocalPathOverride.create(path);
   }
 
-  public Module buildModule(RepoSpec repoSpec, Registry registry) {
+  public Module buildModule(Registry registry) {
     return module.setDeps(ImmutableMap.copyOf(deps))
-        .setRepoSpec(repoSpec)
         .setRegistry(registry)
         .build();
   }

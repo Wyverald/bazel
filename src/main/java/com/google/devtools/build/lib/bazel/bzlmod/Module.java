@@ -16,9 +16,6 @@ public abstract class Module {
   public abstract ImmutableMap<String, ModuleKey> getDeps();
 
   @Nullable
-  public abstract RepoSpec getRepoSpec();
-
-  @Nullable
   public abstract Registry getRegistry();
 
   public abstract Builder toBuilder();
@@ -35,8 +32,6 @@ public abstract class Module {
     public abstract Builder setVersion(String value);
 
     public abstract Builder setDeps(ImmutableMap<String, ModuleKey> value);
-
-    public abstract Builder setRepoSpec(RepoSpec value);
 
     public abstract Builder setRegistry(Registry value);
 

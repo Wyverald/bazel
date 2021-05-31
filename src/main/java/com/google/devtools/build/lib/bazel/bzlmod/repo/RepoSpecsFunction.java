@@ -1,5 +1,6 @@
 package com.google.devtools.build.lib.bazel.bzlmod.repo;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.devtools.build.lib.actions.FileValue;
@@ -7,6 +8,7 @@ import com.google.devtools.build.lib.bazel.bzlmod.Module;
 import com.google.devtools.build.lib.bazel.bzlmod.ModuleFileValue;
 import com.google.devtools.build.lib.bazel.bzlmod.ModuleKey;
 import com.google.devtools.build.lib.bazel.bzlmod.NonRegistryOverride;
+import com.google.devtools.build.lib.bazel.bzlmod.Registry;
 import com.google.devtools.build.lib.bazel.bzlmod.RegistryOverride;
 import com.google.devtools.build.lib.bazel.bzlmod.SelectionValue;
 import com.google.devtools.build.lib.bazel.bzlmod.SingleVersionOverride;
@@ -55,18 +57,12 @@ public class RepoSpecsFunction implements SkyFunction {
       return null;
     }
     ImmutableMap.Builder<String, RepoSpec> repositories = ImmutableMap.builder();
-
-    HashMap<String, String> moduleNameToRepoName = new HashMap<>();
-    for (Map.Entry<String, ModuleKey> entry : root.getModule().getDeps().entrySet()) {
-      moduleNameToRepoName.put(entry.getValue().getName(), entry.getKey());
-    }
-
     for (Map.Entry<String, StarlarkOverrideApi> entry : root.getOverrides().entrySet()) {
       if (entry.getValue() instanceof RegistryOverride) {
         continue;
       }
       // TODO: refactor repo name calculate
-      String repoName = moduleNameToRepoName.getOrDefault(entry.getKey(), entry.getKey());
+      String repoName = entry.getKey();
       NonRegistryOverride nonRegistryOverride = (NonRegistryOverride) entry.getValue();
       repositories.put(repoName, nonRegistryOverride.getRepoSpec(repoName));
     }
@@ -84,19 +80,16 @@ public class RepoSpecsFunction implements SkyFunction {
     ImmutableMap.Builder<String, RepoSpec> repositories = ImmutableMap.builder();
 
     for (ModuleKey moduleKey : selectionValue.getDepGraph().keySet()) {
-      if (moduleKey.getName().equals(selectionValue.getRootModuleName())) {
+      if (moduleKey.getName().equals(selectionValue.getRootModuleName()) ||
+          selectionValue.getOverrides().get(moduleKey.getName()) instanceof NonRegistryOverride) {
         continue;
       }
       try {
         Module module = selectionValue.getDepGraph().get(moduleKey);
+        Registry registry = Preconditions.checkNotNull(module.getRegistry());
         // TODO: calculate the real repo name
         String repoName = moduleKey.getName();
-        RepoSpec repoSpec;
-        if (module.getRepoSpec() != null) {
-          repoSpec = module.getRepoSpec();
-        } else {
-          repoSpec = module.getRegistry().getRepoSpec(moduleKey, repoName, env.getListener());
-        }
+        RepoSpec repoSpec = registry.getRepoSpec(moduleKey, repoName, env.getListener());
         // We may need to apply an extra set of patches here when the module has a single version
         // override with patches.
         repoSpec = maybeAppendAdditionalPatches(repoSpec,
