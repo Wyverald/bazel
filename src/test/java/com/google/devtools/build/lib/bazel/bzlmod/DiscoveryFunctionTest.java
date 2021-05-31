@@ -183,16 +183,18 @@ public class DiscoveryFunctionTest extends FoundationTestCase {
             .setName("B")
             .setVersion("0.1")
             .addDep("C", ModuleKey.create("C", "2.0"))
+            .setRegistry(registry)
             .build());
     assertThat(discoveryValue.getDepGraph().get(ModuleKey.create("C", "2.0"))).isEqualTo(
         Module.builder()
             .setName("C")
             .setVersion("2.0")
+            .setRegistry(registry)
             .build());
     assertThat(discoveryValue.getDepGraph()).hasSize(3);
     assertThat(discoveryValue.getOverrides()).containsExactly(
         "A", LocalPathOverride.create(""),
-        "C", SingleVersionOverride.create("2.0", ""));
+        "C", SingleVersionOverride.create("2.0", "", ImmutableList.of(), 0));
   }
 
   @Test
@@ -233,17 +235,19 @@ public class DiscoveryFunctionTest extends FoundationTestCase {
             .setName("B")
             .setVersion("0.1")
             .addDep("C", ModuleKey.create("C", "1.0"))
+            .setRegistry(registry1)
             .build());
     assertThat(discoveryValue.getDepGraph().get(ModuleKey.create("C", "1.0"))).isEqualTo(
         Module.builder()
             .setName("C")
             .setVersion("1.0")
             .addDep("B", ModuleKey.create("B", "0.1"))
+            .setRegistry(registry2)
             .build());
     assertThat(discoveryValue.getDepGraph()).hasSize(3);
     assertThat(discoveryValue.getOverrides()).containsExactly(
         "A", LocalPathOverride.create(""),
-        "C", SingleVersionOverride.create("", registry2.getUrl()));
+        "C", SingleVersionOverride.create("", registry2.getUrl(), ImmutableList.of(), 0));
   }
 
   @Test
@@ -283,6 +287,7 @@ public class DiscoveryFunctionTest extends FoundationTestCase {
             .setName("B")
             .setVersion("0.1")
             .addDep("C", ModuleKey.create("C", ""))
+            .setRegistry(registry)
             .build());
     assertThat(discoveryValue.getDepGraph().get(ModuleKey.create("C", ""))).isEqualTo(
         Module.builder()

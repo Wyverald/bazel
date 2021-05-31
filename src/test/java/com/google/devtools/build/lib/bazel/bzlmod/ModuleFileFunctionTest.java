@@ -117,7 +117,7 @@ public class ModuleFileFunctionTest extends FoundationTestCase {
             .build());
     assertThat(moduleFileValue.getOverrides()).containsExactly(
         "A", LocalPathOverride.create(""),
-        "D", SingleVersionOverride.create("18", ""),
+        "D", SingleVersionOverride.create("18", "", ImmutableList.of(), 0),
         "E", LocalPathOverride.create("somewhere/else"));
   }
 

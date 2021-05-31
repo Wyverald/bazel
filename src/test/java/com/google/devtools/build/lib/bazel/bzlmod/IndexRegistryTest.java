@@ -86,23 +86,27 @@ public class IndexRegistryTest extends FoundationTestCase {
         .isEqualTo(IndexRegistry.getRepoSpecForArchive(
             "foorepo",
             ImmutableList.of(
-                new URL("https://mirror.bazel.build/mysite.com/thing.zip"),
-                new URL("file:///home/bazel/mymirror/mysite.com/thing.zip"),
-                new URL("http://mysite.com/thing.zip")),
-            ImmutableList.of(),
+                "https://mirror.bazel.build/mysite.com/thing.zip",
+                "file:///home/bazel/mymirror/mysite.com/thing.zip",
+                "http://mysite.com/thing.zip"),
             "sha256-blah",
             "pref",
+            ImmutableList.of(),
+            0,
+            ImmutableMap.of(),
             0));
     assertThat(registry.getRepoSpec(ModuleKey.create("bar", "2.0"), "barrepo", reporter))
         .isEqualTo(IndexRegistry.getRepoSpecForArchive(
             "barrepo",
             ImmutableList.of(
-                new URL("https://mirror.bazel.build/example.com/archive.jar?with=query"),
-                new URL("file:///home/bazel/mymirror/example.com/archive.jar?with=query"),
-                new URL("https://example.com/archive.jar?with=query")),
-            ImmutableList.of(),
+                "https://mirror.bazel.build/example.com/archive.jar?with=query",
+                "file:///home/bazel/mymirror/example.com/archive.jar?with=query",
+                "https://example.com/archive.jar?with=query"),
             "sha256-bleh",
             "",
+            ImmutableList.of(),
+            0,
+            ImmutableMap.of(),
             0));
   }
 }

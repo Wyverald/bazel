@@ -87,8 +87,7 @@ public class ModuleFileFunction implements SkyFunction {
         moduleKey, starlarkSemantics, env);
 
     // Perform some sanity checks.
-    Module module = moduleFileGlobals.buildModule(getModuleFileResult.repoSpec,
-        getModuleFileResult.registry);
+    Module module = moduleFileGlobals.buildModule(getModuleFileResult.registry);
     if (!module.getName().equals(moduleKey.getName())) {
       throw errorf("the MODULE.bazel file of %s declares a different name (%s)", moduleKey,
           module.getName());
@@ -97,10 +96,11 @@ public class ModuleFileFunction implements SkyFunction {
       throw errorf("the MODULE.bazel file of %s declares a different version (%s)", moduleKey,
           module.getVersion());
     }
+    if (!moduleFileGlobals.buildOverrides().isEmpty()) {
+      throw errorf("The MODULE.bazel file of %s declares overrides", moduleKey);
+    }
 
-    return new ModuleFileValue(module, null);
-    // Note that we don't need to bother with returning the overrides here, because only the
-    // overrides specified by the root module take any effect.
+    return new ModuleFileValue(module, ImmutableMap.of());
   }
 
   private SkyValue computeForRootModule(StarlarkSemantics starlarkSemantics, Environment env)
@@ -113,8 +113,7 @@ public class ModuleFileFunction implements SkyFunction {
     byte[] moduleFile = readFile(moduleFilePath.asPath());
     ModuleFileGlobals moduleFileGlobals = execModuleFile(moduleFile,
         ModuleFileValue.ROOT_MODULE_KEY, starlarkSemantics, env);
-    // TODO: should we add a fetcher for root module?
-    Module module = moduleFileGlobals.buildModule(null, null);
+    Module module = moduleFileGlobals.buildModule(null);
 
     // Check that overrides don't contain the root itself (we need to set the override for the root
     // module to "local path" of the workspace root).
@@ -160,9 +159,8 @@ public class ModuleFileFunction implements SkyFunction {
   private static class GetModuleFileResult {
 
     byte[] moduleFileContents;
-    // Exactly one of `repoSpec` and `registry` is null.
-    RepoSpec repoSpec;
-    Registry registry;
+    // `registry` can be null if this module has a non-registry override.
+    @Nullable Registry registry;
   }
 
   @Nullable
@@ -183,7 +181,6 @@ public class ModuleFileFunction implements SkyFunction {
       }
       GetModuleFileResult result = new GetModuleFileResult();
       result.moduleFileContents = readFile(moduleFilePath.asPath());
-      result.repoSpec = ((NonRegistryOverride) override).getRepoSpec(repoName);
       return Optional.of(result);
     }
 
@@ -214,7 +211,6 @@ public class ModuleFileFunction implements SkyFunction {
 
   private static byte[] readFile(Path path) throws ModuleFileFunctionException {
     try {
-      // TODO: throw in a FileValue here?
       return FileSystemUtils.readWithKnownFileSize(path, path.getFileSize());
     } catch (IOException e) {
       throw new ModuleFileFunctionException(e);
