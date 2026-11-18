@@ -128,7 +128,7 @@ public final class Command implements DescribableExecutionUnit {
   private static final GoogleLogger logger = GoogleLogger.forEnclosingClass();
 
   /** Pass this value to {@link #execute} to indicate that no input should be written to stdin. */
-  public static final InputStream NO_INPUT = new NullInputStream();
+  public static final InputStream NO_INPUT = InputStream.nullInputStream();
 
   public static final boolean KILL_SUBPROCESS_ON_INTERRUPT = true;
   public static final boolean CONTINUE_SUBPROCESS_ON_INTERRUPT = false;
@@ -394,18 +394,6 @@ public final class Command implements DescribableExecutionUnit {
       return subprocessBuilder.start();
     } catch (IOException ioe) {
       throw new ExecFailedException(this, ioe);
-    }
-  }
-
-  private static class NullInputStream extends InputStream {
-    @Override
-    public int read() {
-      return -1;
-    }
-
-    @Override
-    public int available() {
-      return 0;
     }
   }
 
